@@ -13,20 +13,20 @@
 // Пин кнопки
 #define BUTTON_PIN 15
 
-// Параметры экрана 128x160
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 160
+// Параметры экрана 160x128 (ландшафтный режим)
+#define SCREEN_WIDTH 160
+#define SCREEN_HEIGHT 128
 
 // Параметры кубиков (увеличены под большой экран)
-#define DICE_SIZE 60       // Размер кубика в пикселях
+#define DICE_SIZE 70       // Размер кубика в пикселях
 #define DICE_RADIUS 10     // Радиус закругления углов
-#define DOT_RADIUS 5       // Радиус точек на кубике
+#define DOT_RADIUS 7       // Радиус точек на кубике
 
-// Позиции кубиков на экране (128x160, центрированы)
-#define DICE1_X 34         // X координата первого кубика (центр по X: (128-60)/2 = 34)
-#define DICE1_Y 10         // Y координата первого кубика (отступ сверху)
-#define DICE2_X 34         // X координата второго кубика (центр по X)
-#define DICE2_Y 90         // Y координата второго кубика (отступ снизу, чтобы оба влезли)
+// Позиции кубиков на экране (160x128, центрированы)
+#define DICE1_X 10         // X: (160 - 70*2) / 2 = 10
+#define DICE1_Y 29         // Y: (128 - 70) / 2 = 29
+#define DICE2_X 80         // X: 10 + 70 = 80
+#define DICE2_Y 29         // Y: (128 - 70) / 2 = 29
 
 // Создание объекта дисплея
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
@@ -35,194 +35,264 @@ Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RS
 unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;  // 50мс антидребезг
 
+// Переменные для управления состоянием и таймером
+bool isDiceMode = true;       // true = бросок костей, false = запуск таймера
+bool timerActive = false;     // true = таймер запущен
+unsigned long timerStartTime = 0;
+unsigned long lastSecondUpdate = 0;
+const int TIMER_DURATION = 10; // Длительность таймера в секундах
+
+// Переменные для мигающего оповещения
+bool alertActive = false;
+unsigned long lastBlinkTime = 0;
+bool alertVisible = true;
+const int BLINK_INTERVAL = 500; // Интервал мигания в мс
+
+int lastRemainingSeconds = -1; // Для частичного обновления таймера
+int lastDice1 = 0;             // Для частичного обновления кубиков
+int lastDice2 = 0;
+
 /**
  * Функция отрисовки кубика с заданным значением
- * 
- * @param x координата X верхнего левого угла
- * @param y координата Y верхнего левого угла
- * @param value значение кубика (1-6)
  */
-void drawDice(int x, int y, int value) {
-  // Рисуем белый квадрат с закругленными углами (тело кубика)
-  tft.fillRoundRect(x, y, DICE_SIZE, DICE_SIZE, DICE_RADIUS, ST7735_WHITE);
-  
-  // Рисуем черную рамку
-  tft.drawRoundRect(x, y, DICE_SIZE, DICE_SIZE, DICE_RADIUS, ST7735_BLACK);
-  
-  // Рисуем точки в зависимости от значения
+void drawDice(int x, int y, int value, int oldValue, bool isInitialDraw = false) {
+  if (isInitialDraw) {
+    tft.fillRoundRect(x, y, DICE_SIZE, DICE_SIZE, DICE_RADIUS, ST7735_WHITE);
+    tft.drawRoundRect(x, y, DICE_SIZE, DICE_SIZE, DICE_RADIUS, ST7735_BLACK);
+  }
+
+  int center = x + DICE_SIZE / 2;
+  int left = x + DICE_SIZE / 4;
+  int right = x + DICE_SIZE * 3 / 4;
+  int top = y + DICE_SIZE / 4;
+  int middle = y + DICE_SIZE / 2;
+  int bottom = y + DICE_SIZE * 3 / 4;
+
+  // Стираем старые точки (рисуем их цветом фона)
+  if (oldValue > 0) {
+    switch(oldValue) {
+      case 1: tft.fillCircle(center, middle, DOT_RADIUS, ST7735_WHITE); break;
+      case 2: tft.fillCircle(left, top, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(right, bottom, DOT_RADIUS, ST7735_WHITE); break;
+      case 3: tft.fillCircle(left, top, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(center, middle, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(right, bottom, DOT_RADIUS, ST7735_WHITE); break;
+      case 4: tft.fillCircle(left, top, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(right, top, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(left, bottom, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(right, bottom, DOT_RADIUS, ST7735_WHITE); break;
+      case 5: tft.fillCircle(left, top, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(right, top, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(center, middle, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(left, bottom, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(right, bottom, DOT_RADIUS, ST7735_WHITE); break;
+      case 6: tft.fillCircle(left, top, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(left, middle, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(left, bottom, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(right, top, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(right, middle, DOT_RADIUS, ST7735_WHITE); tft.fillCircle(right, bottom, DOT_RADIUS, ST7735_WHITE); break;
+    }
+  }
+
+  // Рисуем новые точки
   switch(value) {
-    case 1:
-      // Одна точка в центре
-      tft.fillCircle(x + 30, y + 30, DOT_RADIUS, ST7735_BLACK);
-      break;
-      
-    case 2:
-      // Две точки по диагонали (верхний левый - нижний правый)
-      tft.fillCircle(x + 18, y + 18, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 42, y + 42, DOT_RADIUS, ST7735_BLACK);
-      break;
-      
-    case 3:
-      // Три точки: диагональ + центр
-      tft.fillCircle(x + 18, y + 18, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 30, y + 30, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 42, y + 42, DOT_RADIUS, ST7735_BLACK);
-      break;
-      
-    case 4:
-      // Четыре точки по углам
-      tft.fillCircle(x + 18, y + 18, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 42, y + 18, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 18, y + 42, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 42, y + 42, DOT_RADIUS, ST7735_BLACK);
-      break;
-      
-    case 5:
-      // Пять точек: углы + центр
-      tft.fillCircle(x + 18, y + 18, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 42, y + 18, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 30, y + 30, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 18, y + 42, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 42, y + 42, DOT_RADIUS, ST7735_BLACK);
-      break;
-      
-    case 6:
-      // Шесть точек: два столбца по три
-      tft.fillCircle(x + 18, y + 15, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 18, y + 30, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 18, y + 45, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 42, y + 15, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 42, y + 30, DOT_RADIUS, ST7735_BLACK);
-      tft.fillCircle(x + 42, y + 45, DOT_RADIUS, ST7735_BLACK);
-      break;
+    case 1: tft.fillCircle(center, middle, DOT_RADIUS, ST7735_BLACK); break;
+    case 2: tft.fillCircle(left, top, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(right, bottom, DOT_RADIUS, ST7735_BLACK); break;
+    case 3: tft.fillCircle(left, top, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(center, middle, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(right, bottom, DOT_RADIUS, ST7735_BLACK); break;
+    case 4: tft.fillCircle(left, top, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(right, top, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(left, bottom, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(right, bottom, DOT_RADIUS, ST7735_BLACK); break;
+    case 5: tft.fillCircle(left, top, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(right, top, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(center, middle, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(left, bottom, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(right, bottom, DOT_RADIUS, ST7735_BLACK); break;
+    case 6: tft.fillCircle(left, top, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(left, middle, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(left, bottom, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(right, top, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(right, middle, DOT_RADIUS, ST7735_BLACK); tft.fillCircle(right, bottom, DOT_RADIUS, ST7735_BLACK); break;
   }
 }
 
 /**
- * Простая анимация броска кубиков
- * Быстрое обновление случайных значений
- * Длительность: ~1.5 секунды
+ * Анимация броска с частичным обновлением.
  */
 void animateRoll(int finalDice1, int finalDice2) {
-  const int ANIMATION_FRAMES = 5;  // 5 кадров для быстрой анимации
+  const int ANIMATION_FRAMES = 15; // Больше кадров для плавности
+  const int FRAME_DELAY = 50;    // Задержка между кадрами
   
+  // Полная перерисовка в начале
+  tft.fillScreen(ST7735_BLACK);
+  drawDice(DICE1_X, DICE1_Y, lastDice1, 0, true);
+  drawDice(DICE2_X, DICE2_Y, lastDice2, 0, true);
+
+  int currentDice1 = lastDice1;
+  int currentDice2 = lastDice2;
+
   for(int frame = 0; frame < ANIMATION_FRAMES; frame++) {
-    // Генерируем случайные значения для анимации
-    int tempDice1 = random(1, 7);
-    int tempDice2 = random(1, 7);
+    int nextDice1 = random(1, 7);
+    int nextDice2 = random(1, 7);
     
-    // Очищаем области кубиков
-    tft.fillRect(DICE1_X - 2, DICE1_Y - 2, DICE_SIZE + 4, DICE_SIZE + 4, ST7735_BLACK);
-    tft.fillRect(DICE2_X - 2, DICE2_Y - 2, DICE_SIZE + 4, DICE_SIZE + 4, ST7735_BLACK);
+    drawDice(DICE1_X, DICE1_Y, nextDice1, currentDice1);
+    drawDice(DICE2_X, DICE2_Y, nextDice2, currentDice2);
+
+    currentDice1 = nextDice1;
+    currentDice2 = nextDice2;
     
-    // Рисуем кубики с временными значениями
-    drawDice(DICE1_X, DICE1_Y, tempDice1);
-    drawDice(DICE2_X, DICE2_Y, tempDice2);
-    
-    // БЕЗ delay() - время отрисовки (~400-500мс/кадр) создает анимацию
-    // Общее время: 5 кадров × ~500мс = ~2.5 секунды
+    delay(FRAME_DELAY);
   }
   
-  // Финальная отрисовка с настоящими значениями
-  tft.fillRect(DICE1_X - 2, DICE1_Y - 2, DICE_SIZE + 4, DICE_SIZE + 4, ST7735_BLACK);
-  tft.fillRect(DICE2_X - 2, DICE2_Y - 2, DICE_SIZE + 4, DICE_SIZE + 4, ST7735_BLACK);
-  drawDice(DICE1_X, DICE1_Y, finalDice1);
-  drawDice(DICE2_X, DICE2_Y, finalDice2);
+  // Финальная отрисовка
+  drawDice(DICE1_X, DICE1_Y, finalDice1, currentDice1);
+  drawDice(DICE2_X, DICE2_Y, finalDice2, currentDice2);
+
+  lastDice1 = finalDice1;
+  lastDice2 = finalDice2;
 }
 
+/**
+ * Функция отрисовки мигающего оповещения
+ */
+void drawAlert(bool visible) {
+  if (visible) {
+    tft.fillTriangle(
+      SCREEN_WIDTH / 2, 10,
+      20, SCREEN_HEIGHT - 10,
+      SCREEN_WIDTH - 20, SCREEN_HEIGHT - 10,
+      ST7735_YELLOW
+    );
+    tft.fillRect(SCREEN_WIDTH / 2 - 8, 30, 16, 50, ST7735_BLACK);
+    tft.fillRect(SCREEN_WIDTH / 2 - 8, 90, 16, 16, ST7735_BLACK);
+  } else {
+    tft.fillScreen(ST7735_BLACK);
+  }
+}
+
+/**
+ * Функция отрисовки таймера
+ */
+void drawTimer(int remainingSeconds) {
+  if (lastRemainingSeconds == remainingSeconds) return; // Ничего не изменилось
+
+  // Устанавливаем цвет текста и ФОНА. Фон будет стирать старые цифры.
+  tft.setTextSize(13);
+  tft.setTextColor(ST7735_YELLOW, ST7735_BLACK);
+
+  // При первом запуске таймера - очищаем весь экран
+  if (lastRemainingSeconds == -1) {
+    tft.fillScreen(ST7735_BLACK);
+  }
+
+  char timeStr[4];
+  sprintf(timeStr, "%02d", remainingSeconds);
+  
+  int16_t x1, y1;
+  uint16_t w, h;
+  tft.getTextBounds(timeStr, 0, 0, &x1, &y1, &w, &h);
+  tft.setCursor((SCREEN_WIDTH - w) / 2, (SCREEN_HEIGHT - h) / 2 + 5);
+  
+  // Просто печатаем новый текст. Фон сотрет старый.
+  tft.print(timeStr);
+
+  lastRemainingSeconds = remainingSeconds; // Запоминаем последнее значение
+}
 
 void setup() {
-  // Инициализация последовательного порта для отладки
   Serial.begin(115200);
-  delay(1000);  // Задержка для стабилизации Serial
-  Serial.println("ESP32 Dice Simulator 128x160 with Animation Starting...");
+  delay(1000);
+  Serial.println("ESP32 Dice Simulator Starting...");
   
-  // Настройка кнопки
-  pinMode(BUTTON_PIN, INPUT_PULLUP);  // Встроенный pull-up резистор
-  Serial.print("Button on GPIO ");
-  Serial.println(BUTTON_PIN);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
   
-  // Инициализация дисплея 1.8" 128x160
-  Serial.println("Initializing display...");
-  
-  // Для 1.8" ST7735 128x160 используем INITR_BLACKTAB
   tft.initR(INITR_BLACKTAB);
-  
-  // Если экран обрезан или битые пиксели, попробуйте:
-  // tft.initR(INITR_GREENTAB);
-  // или
-  // tft.initR(INITR_REDTAB);
-  
   delay(100);
-  Serial.println("Display init command sent");
   
-  // Портретная ориентация для 128x160
-  tft.setRotation(0);
-  
-  // Инициализация генератора случайных чисел
+  tft.setRotation(1);
   randomSeed(analogRead(0));
   
-  // Очистка экрана черным цветом
-  Serial.println("Clearing screen...");
   tft.fillScreen(ST7735_BLACK);
   delay(100);
   
-  // Приветственное сообщение (центрировано для 128x160)
   tft.setTextColor(ST7735_CYAN);
-  tft.setTextSize(2);
-  tft.setCursor(25, 60);  // Центрировано: "DICE" = 4 символа × 12px = 48px, (128-48)/2 ≈ 40
+  tft.setTextSize(3);
+  tft.setCursor(45, 30);
   tft.println("DICE");
-  tft.setCursor(5, 80);   // "ROLLER" = 6 символов × 12px = 72px, (128-72)/2 ≈ 28
+  tft.setCursor(25, 65);
   tft.println("ROLLER");
   
   delay(500);
   
   tft.setTextColor(ST7735_WHITE);
   tft.setTextSize(1);
-  tft.setCursor(20, 120);  // Опущено ниже
+  tft.setCursor(45, 105);
   tft.println("Press button");
-  tft.setCursor(30, 135);  // Опущено ниже
+  tft.setCursor(60, 115);
   tft.println("to roll!");
   
   Serial.println("Display initialized successfully!");
-  Serial.println("Ready! Press the button to roll dice.");
 }
 
 void loop() {
-  // Чтение состояния кнопки (LOW = нажата при использовании INPUT_PULLUP)
-  int buttonState = digitalRead(BUTTON_PIN);
-  
-  if (buttonState == LOW) {
-    // Антидребезг
-    if ((millis() - lastDebounceTime) > debounceDelay) {
-      Serial.println("Button pressed! Rolling dice...");
+  unsigned long currentTime = millis();
+
+  if (alertActive) {
+    if ((currentTime - lastBlinkTime) > BLINK_INTERVAL) {
+      lastBlinkTime = currentTime;
+      alertVisible = !alertVisible;
+      drawAlert(alertVisible);
+    }
+  }
+
+  if (timerActive) {
+    unsigned long elapsedTime = (currentTime - timerStartTime) / 1000;
+
+    if (elapsedTime >= TIMER_DURATION) {
+      timerActive = false;
+      alertActive = true;
+      isDiceMode = true;
       
-      // Генерация случайных значений для двух кубиков (1-6)
-      int dice1 = random(1, 7);
-      int dice2 = random(1, 7);
+      lastBlinkTime = currentTime;
+      alertVisible = true;
+      tft.fillScreen(ST7735_BLACK); // Очищаем экран перед алертом
+      drawAlert(true);
+
+      Serial.println("Timer finished. Alert mode activated.");
       
-      // Вывод значений в Serial Monitor для отладки
-      Serial.print("Dice 1: ");
-      Serial.print(dice1);
-      Serial.print("  Dice 2: ");
-      Serial.println(dice2);
-      
-      // Очистка экрана
-      tft.fillScreen(ST7735_BLACK);
-      
-      // Анимация броска кубиков
-      animateRoll(dice1, dice2);
-      
-      lastDebounceTime = millis();
-      
-      // Ждем отпускания кнопки
-      while(digitalRead(BUTTON_PIN) == LOW) {
-        delay(10);
+      while(digitalRead(BUTTON_PIN) == LOW) { delay(10); }
+      return; 
+    }
+
+    if ((currentTime - lastSecondUpdate) >= 1000) {
+      lastSecondUpdate = currentTime;
+      int remainingSeconds = TIMER_DURATION - elapsedTime;
+      drawTimer(remainingSeconds);
+      Serial.print("Timer: ");
+      Serial.println(remainingSeconds);
+    }
+  }
+
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    if ((currentTime - lastDebounceTime) > debounceDelay) {
+      lastDebounceTime = currentTime;
+
+      if (alertActive) {
+        alertActive = false;
+        isDiceMode = true;
+        Serial.println("Alert acknowledged. Rolling dice...");
       }
       
-      Serial.println("Ready for next roll!");
+      else if (timerActive) {
+        timerActive = false;
+        isDiceMode = true;
+        Serial.println("Timer interrupted. Rolling dice...");
+      }
+      
+      if (isDiceMode) {
+        int dice1 = random(1, 7);
+        int dice2 = random(1, 7);
+        
+        Serial.print("Dice 1: "); Serial.print(dice1);
+        Serial.print("  Dice 2: "); Serial.println(dice2);
+        
+        animateRoll(dice1, dice2);
+        
+        isDiceMode = false;
+        Serial.println("Next press will start the timer.");
+
+      } else {
+        Serial.println("Starting timer...");
+        timerActive = true;
+        timerStartTime = currentTime;
+        lastSecondUpdate = currentTime;
+        lastRemainingSeconds = -1; // Сбрасываем для полной перерисовки
+        
+        drawTimer(TIMER_DURATION);
+        
+        isDiceMode = true;
+        Serial.println("Timer started. Next press will roll dice.");
+      }
+      
+      while(digitalRead(BUTTON_PIN) == LOW) { delay(10); }
+      Serial.println("Button released. Ready for next action.");
     }
   }
   
-  delay(10);  // Небольшая задержка для стабильности
+  delay(10);
 }
