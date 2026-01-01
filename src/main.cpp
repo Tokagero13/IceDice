@@ -2,6 +2,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
 #include <SPI.h>
+#include <esp_system.h>
 
 #include "config.h"
 
@@ -450,7 +451,10 @@ void setup() {
   delay(Config::Intro::DISPLAY_INIT_DELAY_MS);
 
   tft.setRotation(Config::Display::ROTATION);
-  randomSeed(analogRead(0));
+
+  // Инициализация генератора случайных чисел из аппаратного RNG ESP32,
+  // чтобы последовательность не повторялась при каждом старте
+  randomSeed(esp_random());
 
   tft.fillScreen(Config::Colors::BACKGROUND);
   delay(Config::Intro::DISPLAY_CLEAR_DELAY_MS);
