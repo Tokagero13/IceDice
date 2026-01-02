@@ -283,7 +283,7 @@ void startDiceRoll(unsigned long now) {
   animationCurrentDice2 = lastDice2;
   animationTargetDice1  = dice1;
   animationTargetDice2  = dice2;
-  animationFrame        = 0;
+animationFrame        = 0;
   lastFrameTime         = now;
 
   appState = AppState::DiceAnimating;
@@ -325,6 +325,9 @@ void handleDiceAnimation(unsigned long now) {
     drawDice(Config::Dice::DICE1_X, Config::Dice::DICE1_Y, nextDice1, animationCurrentDice1);
     drawDice(Config::Dice::DICE2_X, Config::Dice::DICE2_Y, nextDice2, animationCurrentDice2);
 
+    // Издаем короткий "клик" на каждом кадре
+    tone(Config::Hardware::BUZZER_PIN, Config::Sound::ANIM_TICK_FREQ, Config::Sound::ANIM_TICK_DURATION);
+
     animationCurrentDice1 = nextDice1;
     animationCurrentDice2 = nextDice2;
     ++animationFrame;
@@ -332,6 +335,8 @@ void handleDiceAnimation(unsigned long now) {
     // Финальная отрисовка
     drawDice(Config::Dice::DICE1_X, Config::Dice::DICE1_Y, animationTargetDice1, animationCurrentDice1);
     drawDice(Config::Dice::DICE2_X, Config::Dice::DICE2_Y, animationTargetDice2, animationCurrentDice2);
+
+    noTone(Config::Hardware::BUZZER_PIN); // Убеждаемся, что звук выключен
 
     lastDice1 = animationTargetDice1;
     lastDice2 = animationTargetDice2;
@@ -356,6 +361,8 @@ void handleTimer(unsigned long now) {
 
     tft.fillScreen(Config::Colors::BACKGROUND);
     drawAlert(true);
+    // Первое срабатывание звука тревоги
+    tone(Config::Hardware::BUZZER_PIN, Config::Sound::ALERT_FREQ, Config::Sound::ALERT_TONE_DURATION);
 
     Serial.println("Timer finished. Alert mode activated.");
     return;
@@ -371,7 +378,7 @@ void handleTimer(unsigned long now) {
 }
 
 // ----------------------------------------------------------
-// Обработка алерта (мигание)
+// Обработка алерта (мигание и звук)
 // ----------------------------------------------------------
 
 void handleAlert(unsigned long now) {
@@ -379,6 +386,11 @@ void handleAlert(unsigned long now) {
     lastBlinkTime = now;
     alertVisible  = !alertVisible;
     drawAlert(alertVisible);
+
+    // Издаем звук только когда треугольник видим
+    if (alertVisible) {
+      tone(Config::Hardware::BUZZER_PIN, Config::Sound::ALERT_FREQ, Config::Sound::ALERT_TONE_DURATION);
+    }
   }
 }
 
@@ -387,6 +399,9 @@ void handleAlert(unsigned long now) {
 // ----------------------------------------------------------
 
 void handleButtonPress(unsigned long now) {
+  // Останавливаем любой звук перед началом нового действия
+  noTone(Config::Hardware::BUZZER_PIN);
+
   switch (appState) {
     case AppState::DiceRollNext:
       Serial.println("Manual roll (button pressed)!");
@@ -399,7 +414,7 @@ void handleButtonPress(unsigned long now) {
       break;
 
     case AppState::DiceAnimating:
-      // Во время анимации игнорируем новые нажатия (как и раньше из-за delay)
+      // Во время анимации игнорируем новые нажатия
       break;
 
     case AppState::TimerRunning:
@@ -446,14 +461,14 @@ void setup() {
   Serial.println("ESP32 Dice Simulator Starting...");
 
   pinMode(Config::Hardware::BUTTON_PIN, INPUT_PULLUP);
+  // pinMode для пищалки не требуется, функция tone() сама его настроит
 
   tft.initR(Config::Display::INITR_MODE);
   delay(Config::Intro::DISPLAY_INIT_DELAY_MS);
 
   tft.setRotation(Config::Display::ROTATION);
 
-  // Инициализация генератора случайных чисел из аппаратного RNG ESP32,
-  // чтобы последовательность не повторялась при каждом старте
+  // Инициализация генератора случайных чисел из аппаратного RNG ESP32
   randomSeed(esp_random());
 
   tft.fillScreen(Config::Colors::BACKGROUND);

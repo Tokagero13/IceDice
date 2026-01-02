@@ -16,6 +16,7 @@ namespace Hardware {
   inline constexpr uint8_t TFT_MOSI = 23;
 
   inline constexpr uint8_t BUTTON_PIN = 15;
+  inline constexpr uint8_t BUZZER_PIN = 13;
 }
 
 namespace Display {
@@ -156,6 +157,16 @@ namespace Intro {
   inline constexpr int16_t HINT_LINE1_Y   = 105;
   inline constexpr int16_t HINT_LINE2_X   = 60;
   inline constexpr int16_t HINT_LINE2_Y   = 115;
+}
+
+namespace Sound {
+  // Звук "клика" для каждого кадра анимации
+  inline constexpr int ANIM_TICK_FREQ = 2200;
+  inline constexpr int ANIM_TICK_DURATION = 20; // мс
+
+  // Звук тревоги
+  inline constexpr int ALERT_FREQ = 2000;
+  inline constexpr int ALERT_TONE_DURATION = 250;
 }
 
 } // namespace Config
