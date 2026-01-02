@@ -3,6 +3,10 @@
 #include <Adafruit_ST7735.h>
 #include <SPI.h>
 #include <esp_system.h>
+#include "SPIFFS.h"
+#include "AudioFileSourceSPIFFS.h"
+#include "AudioGeneratorWAV.h"
+#include "AudioOutputI2S.h"
 
 #include "config.h"
 
@@ -15,7 +19,9 @@ enum class AppState : uint8_t {
   DiceTimerNext,  // Следующее нажатие - запуск таймера
   DiceAnimating,  // Идёт анимация броска
   TimerRunning,   // Работает таймер обратного отсчёта
-  AlertActive     // Мигающий алерт
+  AlertActive,    // Мигающий алерт
+  DiceSound1,     // Воспроизводится звук первого кубика
+  DiceSound2      // Воспроизводится звук второго кубика
 };
 
 // Объект дисплея с использованием конфигурации пинов
@@ -26,6 +32,11 @@ Adafruit_ST7735 tft(
   Config::Hardware::TFT_SCLK,
   Config::Hardware::TFT_RST
 );
+
+// Объекты для воспроизведения аудио
+AudioGeneratorWAV *wav = NULL;
+AudioFileSourceSPIFFS *file = NULL;
+AudioOutputI2S *out = NULL;
 
 // Текущее состояние приложения
 AppState appState = AppState::DiceRollNext;
@@ -64,6 +75,7 @@ bool buttonPressedEvent  = false;
 void drawDice(int x, int y, int value, int oldValue, bool isInitialDraw = false);
 void drawAlert(bool visible);
 void drawTimer(int remainingSeconds);
+void playWav(const char *filename);
 
 void updateButton(unsigned long now);
 void handleButtonPress(unsigned long now);
@@ -236,6 +248,30 @@ void drawTimer(int remainingSeconds) {
 }
 
 // ----------------------------------------------------------
+// Воспроизведение WAV файла
+// ----------------------------------------------------------
+
+void playWav(const char *filename) {
+  Serial.printf("Attempting to play: %s\n", filename);
+  if (wav && wav->isRunning()) {
+    // This should not happen with the new state machine, but as a safeguard
+    Serial.println("Warning: a sound is already playing. It will be stopped.");
+    wav->stop();
+  }
+  if (wav) { delete wav; wav = NULL; }
+  if (file) { delete file; file = NULL; }
+
+  file = new AudioFileSourceSPIFFS(filename);
+  wav = new AudioGeneratorWAV();
+  if (!wav->begin(file, out)) {
+    Serial.printf("Error starting WAV playback for %s\n", filename);
+    // Clean up on failure
+    delete wav; wav = NULL;
+    delete file; file = NULL;
+  }
+}
+
+// ----------------------------------------------------------
 // Обработка кнопки (антидребезг, событие нажатия)
 // ----------------------------------------------------------
 
@@ -336,8 +372,13 @@ void handleDiceAnimation(unsigned long now) {
     lastDice1 = animationTargetDice1;
     lastDice2 = animationTargetDice2;
 
-    appState = AppState::DiceTimerNext;
-    Serial.println("Next press will start the timer.");
+    // Начинаем воспроизведение звука первого кубика
+    char filename[12];
+    snprintf(filename, sizeof(filename), "/%d.wav", lastDice1);
+    playWav(filename);
+
+    appState = AppState::DiceSound1;
+    Serial.println("Animation finished. Playing sound 1...");
   }
 }
 
@@ -350,6 +391,8 @@ void handleTimer(unsigned long now) {
 
   if (elapsedTimeSec >= Config::Timer::DURATION_SEC) {
     // Таймер закончился - включаем алерт
+    playWav("/warning.wav");
+
     appState      = AppState::AlertActive;
     alertVisible  = true;
     lastBlinkTime = now;
@@ -411,6 +454,11 @@ void handleButtonPress(unsigned long now) {
       Serial.println("Alert acknowledged. Rolling dice...");
       startDiceRoll(now);
       break;
+
+    case AppState::DiceSound1:
+    case AppState::DiceSound2:
+      // Игнорируем нажатия во время воспроизведения звука
+      break;
   }
 }
 
@@ -464,6 +512,16 @@ void setup() {
 
   Serial.println("Display initialized successfully!");
 
+  // Инициализация файловой системы
+  if (!SPIFFS.begin(true)) { // true для форматирования при ошибке
+    Serial.println("Failed to mount file system");
+    return;
+  }
+  Serial.println("SPIFFS mounted successfully.");
+
+  // Инициализация аудио выхода
+  out = new AudioOutputI2S(0, AudioOutputI2S::INTERNAL_DAC);
+
   // Начальное состояние: ожидаем бросок кубиков
   appState = AppState::DiceRollNext;
 }
@@ -492,6 +550,44 @@ void loop() {
     case AppState::AlertActive:
       handleAlert(now);
       break;
+
+    case AppState::DiceSound1:
+    case AppState::DiceSound2:
+      // Состояния со звуком обрабатываются в основном цикле ниже
+      break;
+  }
+
+  // Обработка аудиопотока и связанных состояний
+  bool isPlaying = (wav && wav->isRunning());
+
+  if (isPlaying) {
+    // Если звук проигрывается, даем ему работать
+    if (!wav->loop()) {
+      // Звук только что закончился
+      wav->stop();
+      delete wav; wav = NULL;
+      delete file; file = NULL;
+      Serial.println("Sound finished.");
+      isPlaying = false; // Обновляем флаг, т.к. звук больше не играет
+    }
+  }
+
+  // Логика перехода состояний, основанная на том, играет ли звук
+  if (!isPlaying) {
+    if (appState == AppState::DiceSound1) {
+      // Состояние "Звук 1", но он не играет (закончился или не начался).
+      // Переходим к звуку 2.
+      char filename[12];
+      snprintf(filename, sizeof(filename), "/%d.wav", lastDice2);
+      playWav(filename);
+      appState = AppState::DiceSound2;
+      Serial.println("State: DiceSound1 -> DiceSound2");
+    } else if (appState == AppState::DiceSound2) {
+      // Состояние "Звук 2", но он не играет.
+      // Значит, все звуки воспроизведены (или пропущены).
+      appState = AppState::DiceTimerNext;
+      Serial.println("State: DiceSound2 -> DiceTimerNext. Next press will start timer.");
+    }
   }
 
   // Обработка события нажатия (если было)

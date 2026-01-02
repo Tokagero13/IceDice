@@ -16,6 +16,8 @@ namespace Hardware {
   inline constexpr uint8_t TFT_MOSI = 23;
 
   inline constexpr uint8_t BUTTON_PIN = 15;
+
+  inline constexpr uint8_t SPEAKER_PIN = 25; // GPIO25 (DAC)
 }
 
 namespace Display {
