@@ -3,6 +3,7 @@
 #include <Adafruit_ST7735.h>
 #include <SPI.h>
 #include <esp_system.h>
+#include <Preferences.h>
 
 #include "config.h"
 
@@ -46,6 +47,7 @@ unsigned long lastFrameTime = 0;
 unsigned long timerStartTime   = 0;
 unsigned long lastSecondUpdate = 0;
 int lastRemainingSeconds       = -1; // для частичного обновления таймера
+uint16_t lastTimerColor        = 0;
 
 // Алерт
 bool alertVisible        = true;
@@ -55,37 +57,50 @@ unsigned long lastBlinkTime = 0;
 int buttonStableState    = HIGH;
 int lastButtonReading    = HIGH;
 unsigned long lastDebounceTime = 0;
-bool buttonPressedEvent  = false;
+bool buttonPressedEvent     = false;
+bool longButtonPressedEvent = false;
+unsigned long buttonPressStartTime = 0;
+bool isLongPressHandled     = false;
 
-// ----------------------------------------------------------
+// Музыка
+int currentNoteIndex      = 0;
+unsigned long lastNoteTime = 0;
+bool melodyPlaying        = false;
+uint8_t currentMelodyIndex = 0;
+
+// Объект для работы с энергонезависимой памятью
+Preferences preferences;
 // Прототипы функций
 // ----------------------------------------------------------
 
-void drawDice(int x, int y, int value, int oldValue, bool isInitialDraw = false);
+void drawDice(int x, int y, int value, int oldValue, uint16_t fillColor, bool isInitialDraw = false);
 void drawAlert(bool visible);
-void drawTimer(int remainingSeconds);
+void drawTimer(int remainingSeconds, uint16_t color);
+uint16_t getColorForSum(int sum);
 
 void updateButton(unsigned long now);
 void handleButtonPress(unsigned long now);
 void handleDiceAnimation(unsigned long now);
 void handleTimer(unsigned long now);
 void handleAlert(unsigned long now);
+void handleIntroMelody(unsigned long now);
 
 void startDiceRoll(unsigned long now);
 void startTimer(unsigned long now);
 void showIntro();
+void startIntroMelody();
 
 // ----------------------------------------------------------
 // Отрисовка кубика
 // ----------------------------------------------------------
 
-void drawDice(int x, int y, int value, int oldValue, bool isInitialDraw) {
+void drawDice(int x, int y, int value, int oldValue, uint16_t fillColor, bool isInitialDraw) {
   const uint16_t DICE_SIZE   = Config::Dice::SIZE;
   const uint16_t DICE_RADIUS = Config::Dice::RADIUS;
   const uint16_t DOT_RADIUS  = Config::Dice::DOT_RADIUS;
 
   if (isInitialDraw) {
-    tft.fillRoundRect(x, y, DICE_SIZE, DICE_SIZE, DICE_RADIUS, Config::Colors::DICE_FILL);
+    tft.fillRoundRect(x, y, DICE_SIZE, DICE_SIZE, DICE_RADIUS, fillColor);
     tft.drawRoundRect(x, y, DICE_SIZE, DICE_SIZE, DICE_RADIUS, Config::Colors::DICE_BORDER);
   }
 
@@ -100,37 +115,37 @@ void drawDice(int x, int y, int value, int oldValue, bool isInitialDraw) {
   if (oldValue > 0) {
     switch (oldValue) {
       case 1:
-        tft.fillCircle(center, middle, DOT_RADIUS, Config::Colors::DICE_FILL);
+        tft.fillCircle(center, middle, DOT_RADIUS, fillColor);
         break;
       case 2:
-        tft.fillCircle(left,  top,    DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(right, bottom, DOT_RADIUS, Config::Colors::DICE_FILL);
+        tft.fillCircle(left,  top,    DOT_RADIUS, fillColor);
+        tft.fillCircle(right, bottom, DOT_RADIUS, fillColor);
         break;
       case 3:
-        tft.fillCircle(left,   top,    DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(center, middle, DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(right,  bottom, DOT_RADIUS, Config::Colors::DICE_FILL);
+        tft.fillCircle(left,   top,    DOT_RADIUS, fillColor);
+        tft.fillCircle(center, middle, DOT_RADIUS, fillColor);
+        tft.fillCircle(right,  bottom, DOT_RADIUS, fillColor);
         break;
       case 4:
-        tft.fillCircle(left,  top,    DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(right, top,    DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(left,  bottom, DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(right, bottom, DOT_RADIUS, Config::Colors::DICE_FILL);
+        tft.fillCircle(left,  top,    DOT_RADIUS, fillColor);
+        tft.fillCircle(right, top,    DOT_RADIUS, fillColor);
+        tft.fillCircle(left,  bottom, DOT_RADIUS, fillColor);
+        tft.fillCircle(right, bottom, DOT_RADIUS, fillColor);
         break;
       case 5:
-        tft.fillCircle(left,   top,    DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(right,  top,    DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(center, middle, DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(left,   bottom, DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(right,  bottom, DOT_RADIUS, Config::Colors::DICE_FILL);
+        tft.fillCircle(left,   top,    DOT_RADIUS, fillColor);
+        tft.fillCircle(right,  top,    DOT_RADIUS, fillColor);
+        tft.fillCircle(center, middle, DOT_RADIUS, fillColor);
+        tft.fillCircle(left,   bottom, DOT_RADIUS, fillColor);
+        tft.fillCircle(right,  bottom, DOT_RADIUS, fillColor);
         break;
       case 6:
-        tft.fillCircle(left,  top,    DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(left,  middle, DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(left,  bottom, DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(right, top,    DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(right, middle, DOT_RADIUS, Config::Colors::DICE_FILL);
-        tft.fillCircle(right, bottom, DOT_RADIUS, Config::Colors::DICE_FILL);
+        tft.fillCircle(left,  top,    DOT_RADIUS, fillColor);
+        tft.fillCircle(left,  middle, DOT_RADIUS, fillColor);
+        tft.fillCircle(left,  bottom, DOT_RADIUS, fillColor);
+        tft.fillCircle(right, top,    DOT_RADIUS, fillColor);
+        tft.fillCircle(right, middle, DOT_RADIUS, fillColor);
+        tft.fillCircle(right, bottom, DOT_RADIUS, fillColor);
         break;
     }
   }
@@ -205,13 +220,14 @@ void drawAlert(bool visible) {
 // Отрисовка таймера
 // ----------------------------------------------------------
 
-void drawTimer(int remainingSeconds) {
-  if (lastRemainingSeconds == remainingSeconds) {
-    return; // Ничего не изменилось
+void drawTimer(int remainingSeconds, uint16_t color) {
+  // Оптимизация: если и время, и цвет не изменились, выходим
+  if (lastRemainingSeconds == remainingSeconds && lastTimerColor == color) {
+    return;
   }
 
   tft.setTextSize(Config::Timer::TEXT_SIZE);
-  tft.setTextColor(Config::Colors::TIMER_TEXT, Config::Colors::BACKGROUND);
+  tft.setTextColor(color, Config::Colors::BACKGROUND);
 
   // При первом запуске таймера - очищаем весь экран
   if (lastRemainingSeconds == -1) {
@@ -233,6 +249,7 @@ void drawTimer(int remainingSeconds) {
   tft.print(timeStr);
 
   lastRemainingSeconds = remainingSeconds;
+  lastTimerColor       = color;
 }
 
 // ----------------------------------------------------------
@@ -250,10 +267,23 @@ void updateButton(unsigned long now) {
   if ((now - lastDebounceTime) >= Config::Input::DEBOUNCE_MS) {
     if (reading != buttonStableState) {
       buttonStableState = reading;
-      if (buttonStableState == LOW) {
-        // Фиксируем одно событие нажатия
-        buttonPressedEvent = true;
+      if (buttonStableState == LOW) { // Кнопка только что была нажата
+        buttonPressStartTime = now;
+        isLongPressHandled = false;
+      } else { // Кнопка только что была отпущена
+        if (!isLongPressHandled) {
+          // Если долгое нажатие не было обработано, это обычное короткое нажатие
+          buttonPressedEvent = true;
+        }
       }
+    }
+  }
+
+  // Проверяем долгое нажатие, пока кнопка удерживается
+  if (buttonStableState == LOW && !isLongPressHandled) {
+    if ((now - buttonPressStartTime) >= Config::Input::LONG_PRESS_MS) {
+      longButtonPressedEvent = true;
+      isLongPressHandled = true; // Помечаем, что долгое нажатие обработано
     }
   }
 }
@@ -276,14 +306,15 @@ void startDiceRoll(unsigned long now) {
   }
 
   // Рисуем рамки кубиков с предыдущими значениями
-  drawDice(Config::Dice::DICE1_X, Config::Dice::DICE1_Y, lastDice1, 0, true);
-  drawDice(Config::Dice::DICE2_X, Config::Dice::DICE2_Y, lastDice2, 0, true);
+  uint16_t initialColor = getColorForSum(lastDice1 + lastDice2);
+  drawDice(Config::Dice::DICE1_X, Config::Dice::DICE1_Y, lastDice1, 0, initialColor, true);
+  drawDice(Config::Dice::DICE2_X, Config::Dice::DICE2_Y, lastDice2, 0, initialColor, true);
 
   animationCurrentDice1 = lastDice1;
   animationCurrentDice2 = lastDice2;
   animationTargetDice1  = dice1;
   animationTargetDice2  = dice2;
-animationFrame        = 0;
+  animationFrame        = 0;
   lastFrameTime         = now;
 
   appState = AppState::DiceAnimating;
@@ -302,7 +333,7 @@ void startTimer(unsigned long now) {
 
   appState = AppState::TimerRunning;
 
-  drawTimer(static_cast<int>(Config::Timer::DURATION_SEC));
+  drawTimer(static_cast<int>(Config::Timer::DURATION_SEC), Config::Colors::TimerColor::LEVEL_OK);
 
   Serial.println("Timer started. Next press will roll dice.");
 }
@@ -322,8 +353,15 @@ void handleDiceAnimation(unsigned long now) {
     int nextDice1 = random(1, 7);
     int nextDice2 = random(1, 7);
 
-    drawDice(Config::Dice::DICE1_X, Config::Dice::DICE1_Y, nextDice1, animationCurrentDice1);
-    drawDice(Config::Dice::DICE2_X, Config::Dice::DICE2_Y, nextDice2, animationCurrentDice2);
+    // Во время анимации кубики всегда белые
+    uint16_t animColor = Config::Colors::DICE_FILL;
+    // Перерисовываем фон в белый только если он был другого цвета
+    if (animationFrame == 0) {
+        tft.fillRoundRect(Config::Dice::DICE1_X, Config::Dice::DICE1_Y, Config::Dice::SIZE, Config::Dice::SIZE, Config::Dice::RADIUS, animColor);
+        tft.fillRoundRect(Config::Dice::DICE2_X, Config::Dice::DICE2_Y, Config::Dice::SIZE, Config::Dice::SIZE, Config::Dice::RADIUS, animColor);
+    }
+    drawDice(Config::Dice::DICE1_X, Config::Dice::DICE1_Y, nextDice1, animationCurrentDice1, animColor);
+    drawDice(Config::Dice::DICE2_X, Config::Dice::DICE2_Y, nextDice2, animationCurrentDice2, animColor);
 
     // Издаем короткий "клик" на каждом кадре
     tone(Config::Hardware::BUZZER_PIN, Config::Sound::ANIM_TICK_FREQ, Config::Sound::ANIM_TICK_DURATION);
@@ -333,8 +371,11 @@ void handleDiceAnimation(unsigned long now) {
     ++animationFrame;
   } else {
     // Финальная отрисовка
-    drawDice(Config::Dice::DICE1_X, Config::Dice::DICE1_Y, animationTargetDice1, animationCurrentDice1);
-    drawDice(Config::Dice::DICE2_X, Config::Dice::DICE2_Y, animationTargetDice2, animationCurrentDice2);
+    uint16_t finalColor = getColorForSum(animationTargetDice1 + animationTargetDice2);
+    tft.fillRoundRect(Config::Dice::DICE1_X, Config::Dice::DICE1_Y, Config::Dice::SIZE, Config::Dice::SIZE, Config::Dice::RADIUS, finalColor);
+    tft.fillRoundRect(Config::Dice::DICE2_X, Config::Dice::DICE2_Y, Config::Dice::SIZE, Config::Dice::SIZE, Config::Dice::RADIUS, finalColor);
+    drawDice(Config::Dice::DICE1_X, Config::Dice::DICE1_Y, animationTargetDice1, animationCurrentDice1, finalColor);
+    drawDice(Config::Dice::DICE2_X, Config::Dice::DICE2_Y, animationTargetDice2, animationCurrentDice2, finalColor);
 
     noTone(Config::Hardware::BUZZER_PIN); // Убеждаемся, что звук выключен
 
@@ -371,7 +412,17 @@ void handleTimer(unsigned long now) {
   if (now - lastSecondUpdate >= 1000UL) {
     lastSecondUpdate = now;
     int remainingSeconds = static_cast<int>(Config::Timer::DURATION_SEC - elapsedTimeSec);
-    drawTimer(remainingSeconds);
+    uint16_t timerColor;
+    if (remainingSeconds <= 10) {
+      timerColor = Config::Colors::TimerColor::LEVEL_CRITICAL;
+    } else if (remainingSeconds <= 20) {
+      timerColor = Config::Colors::TimerColor::LEVEL_URGENT;
+    } else if (remainingSeconds <= 30) {
+      timerColor = Config::Colors::TimerColor::LEVEL_WARN;
+    } else {
+      timerColor = Config::Colors::TimerColor::LEVEL_OK;
+    }
+    drawTimer(remainingSeconds, timerColor);
     Serial.print("Timer: ");
     Serial.println(remainingSeconds);
   }
@@ -399,8 +450,16 @@ void handleAlert(unsigned long now) {
 // ----------------------------------------------------------
 
 void handleButtonPress(unsigned long now) {
-  // Останавливаем любой звук перед началом нового действия
+  // Останавливаем музыку, если она играла
+  if (melodyPlaying) {
+    melodyPlaying = false;
+    noTone(Config::Hardware::BUZZER_PIN);
+  }
+  
+  // Останавливаем любой другой звук перед началом нового действия
   noTone(Config::Hardware::BUZZER_PIN);
+  // Воспроизводим звук клика
+  tone(Config::Hardware::BUZZER_PIN, Config::Sound::BUTTON_CLICK_FREQ, Config::Sound::BUTTON_CLICK_DURATION);
 
   switch (appState) {
     case AppState::DiceRollNext:
@@ -449,6 +508,9 @@ void showIntro() {
   tft.println("Press button");
   tft.setCursor(Config::Intro::HINT_LINE2_X, Config::Intro::HINT_LINE2_Y);
   tft.println("to roll!");
+
+  // Запускаем музыку
+  startIntroMelody();
 }
 
 // ----------------------------------------------------------
@@ -467,6 +529,11 @@ void setup() {
   delay(Config::Intro::DISPLAY_INIT_DELAY_MS);
 
   tft.setRotation(Config::Display::ROTATION);
+
+  // Инициализация NVS
+  preferences.begin("dice-app", false);
+  // Так как мелодия всего одна, ее индекс всегда 0
+  currentMelodyIndex = 0;
 
   // Инициализация генератора случайных чисел из аппаратного RNG ESP32
   randomSeed(esp_random());
@@ -493,7 +560,9 @@ void loop() {
   switch (appState) {
     case AppState::DiceRollNext:
     case AppState::DiceTimerNext:
-      // Ничего периодически не обновляем, ждём нажатия
+      if (melodyPlaying) {
+        handleIntroMelody(now);
+      }
       break;
 
     case AppState::DiceAnimating:
@@ -515,5 +584,81 @@ void loop() {
     handleButtonPress(now);
   }
 
+  if (longButtonPressedEvent) {
+    longButtonPressedEvent = false;
+    Serial.println("Long press detected. Rebooting...");
+    ESP.restart();
+  }
+
   delay(Config::Input::LOOP_IDLE_DELAY);
+}
+
+// ----------------------------------------------------------
+// Определение цвета по сумме кубиков
+// ----------------------------------------------------------
+
+uint16_t getColorForSum(int sum) {
+  switch (sum) {
+    case 2:
+    case 12:
+      return Config::Colors::DiceSum::SUM_2_12;
+    case 3:
+    case 11:
+      return Config::Colors::DiceSum::SUM_3_11;
+    case 4:
+    case 10:
+      return Config::Colors::DiceSum::SUM_4_10;
+    case 5:
+    case 9:
+      return Config::Colors::DiceSum::SUM_5_9;
+    case 6:
+    case 8:
+      return Config::Colors::DiceSum::SUM_6_8;
+    case 7:
+      return Config::Colors::DiceSum::SUM_7;
+    default:
+      return Config::Colors::DICE_FILL; // Цвет по умолчанию
+  }
+}
+
+// ----------------------------------------------------------
+// Управление интро-мелодией
+// ----------------------------------------------------------
+
+void startIntroMelody() {
+  currentNoteIndex = 0;
+  lastNoteTime     = 0;
+  melodyPlaying    = true;
+}
+
+void handleIntroMelody(unsigned long now) {
+  if (!melodyPlaying) {
+    return;
+  }
+
+  // Проверяем, пора ли играть следующую ноту
+  const int* melody = Config::Sound::MELODIES[currentMelodyIndex];
+  int noteCount = Config::Sound::MELODY_NOTE_COUNTS[currentMelodyIndex];
+  
+  int currentNoteDuration = static_cast<int>(melody[currentNoteIndex * 2 + 1] * Config::Sound::TEMPO_SCALE);
+  if (now - lastNoteTime > (unsigned long)(currentNoteDuration + Config::Sound::NOTE_PAUSE_BETWEEN)) {
+    lastNoteTime = now;
+
+    // Переходим к следующей ноте
+    currentNoteIndex++;
+    if (currentNoteIndex >= noteCount) {
+      melodyPlaying = false; // Останавливаем воспроизведение после одного раза
+      noTone(Config::Hardware::BUZZER_PIN);
+      return;
+    }
+
+    // Воспроизводим ноту
+    int noteFrequency = melody[currentNoteIndex * 2];
+    int noteDuration = static_cast<int>(melody[currentNoteIndex * 2 + 1] * Config::Sound::TEMPO_SCALE);
+    if (noteFrequency > 0) {
+      tone(Config::Hardware::BUZZER_PIN, noteFrequency, noteDuration);
+    } else {
+      noTone(Config::Hardware::BUZZER_PIN); // Пауза
+    }
+  }
 }

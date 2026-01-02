@@ -43,6 +43,21 @@ namespace Colors {
 
   inline constexpr uint16_t TITLE_TEXT  = ST7735_CYAN;
   inline constexpr uint16_t HINT_TEXT   = ST7735_WHITE;
+  namespace DiceSum {
+    inline constexpr uint16_t SUM_2_12 = 0x781F; // Пурпурный (Magenta)
+    inline constexpr uint16_t SUM_3_11 = ST7735_BLUE;
+    inline constexpr uint16_t SUM_4_10 = ST7735_YELLOW;
+    inline constexpr uint16_t SUM_5_9  = 0xFC00; // Оранжевый (Orange)
+    inline constexpr uint16_t SUM_6_8  = ST7735_GREEN;
+    inline constexpr uint16_t SUM_7    = ST7735_RED;
+  }
+
+  namespace TimerColor {
+    inline constexpr uint16_t LEVEL_OK       = ST7735_GREEN;
+    inline constexpr uint16_t LEVEL_WARN     = ST7735_YELLOW;
+    inline constexpr uint16_t LEVEL_URGENT   = 0xFC00; // Оранжевый (Orange)
+    inline constexpr uint16_t LEVEL_CRITICAL = ST7735_RED;
+  }
 }
 
 namespace Dice {
@@ -99,6 +114,9 @@ namespace Dice {
 namespace Input {
   // Антидребезг кнопки
   inline constexpr uint32_t DEBOUNCE_MS     = 50;
+  
+  // Время для регистрации долгого нажатия (в мс)
+  inline constexpr uint32_t LONG_PRESS_MS   = 1500;
 
   // Небольшая задержка в конце loop() для разгрузки CPU
   inline constexpr uint32_t LOOP_IDLE_DELAY = 10;
@@ -167,6 +185,35 @@ namespace Sound {
   // Звук тревоги
   inline constexpr int ALERT_FREQ = 2000;
   inline constexpr int ALERT_TONE_DURATION = 250;
+
+  // Звук нажатия кнопки
+  inline constexpr int BUTTON_CLICK_FREQ = 1500;
+  inline constexpr int BUTTON_CLICK_DURATION = 50;
+
+#include "rock_1.h"
+
+  // --- Управление набором мелодий ---
+  // 1. Массив указателей на все мелодии
+  inline const int* const MELODIES[] = {
+    OMNI_STYLE_LOOP
+  };
+
+  // 2. Массив с количеством нот для каждой мелодии
+  inline constexpr int MELODY_NOTE_COUNTS[] = {
+    OMNI_STYLE_LOOP_SIZE
+  };
+  
+  // 3. Общее количество доступных мелодий
+  inline constexpr int TOTAL_MELODIES = sizeof(MELODIES) / sizeof(MELODIES[0]);
+
+  // Звук подтверждения смены мелодии
+  inline constexpr int CHANGE_MELODY_FREQ = 2500;
+  inline constexpr int CHANGE_MELODY_DURATION = 100;
+
+  inline constexpr int NOTE_PAUSE_BETWEEN = 50; // Пауза между нотами
+
+  // Коэффициент масштабирования темпа. 1.0 = оригинал, > 1.0 = медленнее, < 1.0 = быстрее.
+  inline constexpr float TEMPO_SCALE = 1.5f;
 }
 
 } // namespace Config
