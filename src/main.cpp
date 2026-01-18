@@ -67,6 +67,7 @@ int currentNoteIndex      = 0;
 unsigned long lastNoteTime = 0;
 bool melodyPlaying        = false;
 uint8_t currentMelodyIndex = 0;
+bool melodyHasPlayed      = false;  // Флаг для отслеживания, что мелодия уже была проиграна
 
 // Объект для работы с энергонезависимой памятью
 Preferences preferences;
@@ -270,20 +271,24 @@ void updateButton(unsigned long now) {
       if (buttonStableState == LOW) { // Кнопка только что была нажата
         buttonPressStartTime = now;
         isLongPressHandled = false;
+        Serial.println("Button pressed, starting timer for long press detection");
       } else { // Кнопка только что была отпущена
         if (!isLongPressHandled) {
           // Если долгое нажатие не было обработано, это обычное короткое нажатие
           buttonPressedEvent = true;
+          Serial.println("Short press detected");
         }
+        buttonPressStartTime = 0; // Сбрасываем таймер при отпускании
       }
     }
   }
 
   // Проверяем долгое нажатие, пока кнопка удерживается
-  if (buttonStableState == LOW && !isLongPressHandled) {
+  if (buttonStableState == LOW && !isLongPressHandled && buttonPressStartTime > 0) {
     if ((now - buttonPressStartTime) >= Config::Input::LONG_PRESS_MS) {
       longButtonPressedEvent = true;
       isLongPressHandled = true; // Помечаем, что долгое нажатие обработано
+      Serial.println("Long press detected in updateButton()");
     }
   }
 }
@@ -626,9 +631,16 @@ uint16_t getColorForSum(int sum) {
 // ----------------------------------------------------------
 
 void startIntroMelody() {
+  // Проверяем, не была ли мелодия уже проиграна
+  if (melodyHasPlayed) {
+    Serial.println("Melody already played, skipping...");
+    return;
+  }
+  
   currentNoteIndex = 0;
   lastNoteTime     = 0;
   melodyPlaying    = true;
+  Serial.println("Starting intro melody (one-time play)");
 }
 
 void handleIntroMelody(unsigned long now) {
@@ -648,7 +660,9 @@ void handleIntroMelody(unsigned long now) {
     currentNoteIndex++;
     if (currentNoteIndex >= noteCount) {
       melodyPlaying = false; // Останавливаем воспроизведение после одного раза
+      melodyHasPlayed = true; // Помечаем, что мелодия была проиграна
       noTone(Config::Hardware::BUZZER_PIN);
+      Serial.println("Intro melody finished, marked as played");
       return;
     }
 
