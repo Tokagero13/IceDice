@@ -4,6 +4,22 @@ IceDice is a firmware project for **ESP32** with a color TFT ST7735 display, a p
 
 The main application code lives in [`src/main.cpp`](src/main.cpp). All hardware pins and tunable parameters are collected in [`include/config.h`](include/config.h). A step‑by‑step quickstart guide is available in [`QUICKSTART.md`](QUICKSTART.md), and more detailed documentation is stored in the [`plans/`](plans/README.md) folder.
 
+## 📸 Photos
+
+Real hardware photos from the [`static`](static) folder:
+
+- Final assembled device:
+
+  ![Final product](static/product.png)
+
+- 3D‑printed case:
+
+  ![Printed case](static/print_case.jpg)
+
+- Early prototype on the bench:
+
+  ![Prototype](static/prototype.jpg)
+
 ## ✨ Features
 
 - Rendering of **two dice** with realistic pips and rounded corners.
