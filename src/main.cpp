@@ -13,8 +13,9 @@
 
 enum class AppState : uint8_t {
   DiceRollNext,   // Следующее нажатие - бросок кубиков
-  DiceTimerNext,  // Следующее нажатие - запуск таймера
+  DiceTimerNext,  // Следующее нажатие - запуск таймера (DEPRECATED - больше не используется)
   DiceAnimating,  // Идёт анимация броска
+  ResultDisplay,  // Показ результата броска перед автоматическим запуском таймера
   TimerRunning,   // Работает таймер обратного отсчёта
   AlertActive     // Мигающий алерт
 };
@@ -42,6 +43,9 @@ int animationTargetDice1  = 0;
 int animationTargetDice2  = 0;
 uint8_t animationFrame    = 0;
 unsigned long lastFrameTime = 0;
+
+// Показ результата броска
+unsigned long resultDisplayStartTime = 0;
 
 // Таймер
 unsigned long timerStartTime   = 0;
@@ -82,6 +86,7 @@ uint16_t getColorForSum(int sum);
 void updateButton(unsigned long now);
 void handleButtonPress(unsigned long now);
 void handleDiceAnimation(unsigned long now);
+void handleResultDisplay(unsigned long now);
 void handleTimer(unsigned long now);
 void handleAlert(unsigned long now);
 void handleIntroMelody(unsigned long now);
@@ -387,8 +392,25 @@ void handleDiceAnimation(unsigned long now) {
     lastDice1 = animationTargetDice1;
     lastDice2 = animationTargetDice2;
 
-    appState = AppState::DiceTimerNext;
-    Serial.println("Next press will start the timer.");
+    // Переходим к показу результата на 5 секунд
+    appState = AppState::ResultDisplay;
+    resultDisplayStartTime = now;
+    Serial.println("Showing result for 5 seconds, then timer will start automatically.");
+  }
+}
+
+// ----------------------------------------------------------
+// Обработка показа результата броска
+// ----------------------------------------------------------
+
+void handleResultDisplay(unsigned long now) {
+  unsigned long elapsedTime = now - resultDisplayStartTime;
+  
+  // Проверяем, прошло ли 5 секунд
+  if (elapsedTime >= Config::Timer::RESULT_DISPLAY_SEC * 1000UL) {
+    // Автоматически запускаем таймер
+    Serial.println("5 seconds elapsed, starting timer automatically...");
+    startTimer(now);
   }
 }
 
@@ -473,12 +495,19 @@ void handleButtonPress(unsigned long now) {
       break;
 
     case AppState::DiceTimerNext:
-      // Следующее нажатие после броска - запуск таймера
+      // Deprecated: таймер теперь запускается автоматически после показа результата
+      // Но оставляем для совместимости
+      Serial.println("Starting timer (legacy path)...");
       startTimer(now);
       break;
 
     case AppState::DiceAnimating:
       // Во время анимации игнорируем новые нажатия
+      break;
+
+    case AppState::ResultDisplay:
+      // Во время показа результата игнорируем нажатия - ждем автоматического запуска таймера
+      Serial.println("Please wait, result is being displayed...");
       break;
 
     case AppState::TimerRunning:
@@ -572,6 +601,10 @@ void loop() {
 
     case AppState::DiceAnimating:
       handleDiceAnimation(now);
+      break;
+
+    case AppState::ResultDisplay:
+      handleResultDisplay(now);
       break;
 
     case AppState::TimerRunning:

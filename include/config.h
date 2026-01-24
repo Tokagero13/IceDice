@@ -124,7 +124,10 @@ namespace Input {
 
 namespace Timer {
   // Длительность таймера в секундах
-  inline constexpr uint32_t DURATION_SEC = 60;
+  inline constexpr uint32_t DURATION_SEC = 45;
+
+  // Длительность показа результата броска кубиков (в секундах)
+  inline constexpr uint32_t RESULT_DISPLAY_SEC = 5;
 
   // Размер шрифта таймера
   inline constexpr uint8_t  TEXT_SIZE   = 13;
